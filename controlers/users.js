@@ -1,48 +1,52 @@
-const bcrypt = require('bcryptjs');
-
 const mongoose = require('mongoose');
-
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const User = require('../models/user');
 
-const ERROR_IN_REQUATION = 400;
-const ERROR_404_NOTFOUND = 404;
-const ERROR_505_DEFALT = 500;
-const INFO_201_SEC_REC = 201;
 const INFO_200_SEC_SEND = 200;
+const INFO_201_SEC_REC = 201;
 
-module.exports.getUsers = (_req, res) => {
-  User.find({})
-    .then((user) => res.send(user))
-    .catch(() => res
-      .status(ERROR_505_DEFALT)
-      .send({ message: 'На сервере произошла ошибка' }));
-};
+const {
+  ERROR_IN_REQUATION,
+  ANAUTHORUZED_REQUEST_401,
+  ERROR_404_NOTFOUND,
+  CODE_CONFLICT,
+} = require('../utils/errors/errors');
 
-module.exports.getUserById = (req, res) => {
-  User.findById(req.params.userId)
+module.exports.getUserById = (req, res, next) => {
+  const { userId } = req.params;
+  User.findById(userId)
     .then((user) => {
       if (!user) {
-        res
-          .status(ERROR_404_NOTFOUND)
-          .send({ message: 'Пользователь не найден' });
-        return;
+        return next(
+          new ERROR_404_NOTFOUND('Пользователь не найден'),
+        );
       }
-      res.send(user);
+      return res.status(INFO_200_SEC_SEND).send({
+        _id: user._id,
+        name: user.name,
+        about: user.about,
+        email: user.email,
+        avatar: user.avatar,
+      });
     })
     .catch((err) => {
       if (err.name === 'CastError') {
-        res
-          .status(ERROR_IN_REQUATION)
-          .send({ message: 'Переданы некоректные данные' });
-      } else {
-        res
-          .status(ERROR_505_DEFALT)
-          .send({ message: 'На сервере произошла ошибка' });
+        return next(
+          new ERROR_IN_REQUATION('Отправлены некорректные данные'),
+        );
       }
+      return next(err);
     });
 };
 
-module.exports.updateUserInfo = (req, res) => {
+module.exports.getUser = (_req, res, next) => {
+  User.find({})
+    .then((user) => res.send(user))
+    .catch(next);
+};
+
+module.exports.updateUserInfo = (req, res, next) => {
   const { name, about } = req.body;
   User.findByIdAndUpdate(
     req.user._id,
@@ -52,34 +56,18 @@ module.exports.updateUserInfo = (req, res) => {
     .then((user) => res.status(INFO_200_SEC_SEND).send(user))
     .catch((err) => {
       if (err instanceof mongoose.Error.ValidationError) {
-        res
-          .status(ERROR_IN_REQUATION)
-          .send({ message: 'Переданны некоректные данные' });
-      } else {
-        res
-          .status(ERROR_505_DEFALT)
-          .send({ message: 'На сервере произошла ошибка' });
+        return next(
+          new ERROR_IN_REQUATION('Отправлены некорректные данные'),
+        );
       }
+      return next(err);
     });
 };
 
-module.exports.createUser = (req, res) => {
+module.exports.createUser = (req, res, next) => {
   const {
     name, about, avatar, email, password,
   } = req.body;
-  // User.create({ name, about, avatar })
-  //   .then((user) => res.status(INFO_201_SEC_REC).send(user))
-  //   .catch((err) => {
-  //     if (err instanceof mongoose.Error.ValidationError) {
-  //       res
-  //         .status(ERROR_IN_REQUATION)
-  //         .send({ message: 'Переданны некоректные данные' });
-  //     } else {
-  //       res
-  //         .status(ERROR_505_DEFALT)
-  //         .send({ message: 'На сервере произошла ошибка' });
-  //     }
-  //   });
   bcrypt
     .hash(password, 10)
     .then((hash) => User.create({
@@ -107,19 +95,51 @@ module.exports.createUser = (req, res) => {
     });
 };
 
-module.exports.updateAvatar = (req, res) => {
+module.exports.login = (req, res, next) => {
+  const { email, password } = req.body;
+
+  User.findOne({ email })
+    .select('+password')
+    .then((user) => {
+      // Хэш
+      if (!user) {
+        return next(
+          new ANAUTHORUZED_REQUEST_401('Неправильная почта или пароль'),
+        );
+      }
+      return bcrypt.compare(password, user.password).then((isEqual) => {
+        if (!isEqual) {
+          return next(
+            new ANAUTHORUZED_REQUEST_401('Неправильная почта или пароль'),
+          );
+        }
+        const token = jwt.sign({ _id: user._id }, 'super-secret-kei', {
+          expiresIn: '7d',
+        });
+        return res.status(INFO_200_SEC_SEND).send({ token });
+      });
+    })
+    .catch(next);
+};
+
+module.exports.getCurrentUser = (req, res, next) => {
+  const userId = req.user._id;
+  User.findById(userId)
+    .orFail()
+    .then((user) => res.status(INFO_200_SEC_SEND).send(user))
+    .catch(next);
+};
+
+module.exports.updateAvatar = (req, res, next) => {
   const { avatar } = req.body;
-  User.findByIdAndUpdate(req.user._id, { avatar }, { new: true, runValidators: true })
+  User.findByIdAndUpdate(req.user._id, { avatar }, { new: true })
     .then((user) => res.status(INFO_200_SEC_SEND).send(user))
     .catch((err) => {
       if (err instanceof mongoose.Error.ValidationError) {
-        res
-          .status(ERROR_IN_REQUATION)
-          .send({ message: 'Переданны некоректные данные' });
-      } else {
-        res
-          .status(ERROR_505_DEFALT)
-          .send({ message: 'На сервере произошла ошибка' });
+        return next(
+          new ERROR_IN_REQUATION('Отправлены некорректные данные'),
+        );
       }
+      return next(err);
     });
 };
