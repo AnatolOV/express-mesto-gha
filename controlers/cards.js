@@ -1,58 +1,63 @@
 const mongoose = require('mongoose');
 const Card = require('../models/card');
-// Статусы и значения
-const ERROR_IN_REQUATION = 400;
-const ERROR_404_NOTFOUND = 404;
-const ERROR_505_DEFALT = 500;
+
 const INFO_200_SEC_SEND = 200;
 const INFO_201_SEC_REC = 201;
+const {
+  ERROR_IN_REQUATION,
+  ERROR_403_PERMISSION,
+  ERROR_404_NOTFOUND,
+} = require('../utils/errors/errors');
 
-module.exports.getCards = (_req, res) => {
-  Card.find({})
-    .then((cards) => res.send(cards))
-    .catch(() => res
-      .status(ERROR_505_DEFALT)
-      .send({ message: 'На сервере произошла ошибка' }));
-};
 
-module.exports.createCard = (req, res) => {
+module.exports.createCard = (req, res, next) => {
   const { name, link } = req.body;
   Card.create({ name, link, owner: req.user._id })
     .then((card) => res.status(INFO_201_SEC_REC).send(card))
     .catch((err) => {
       if (err instanceof mongoose.Error.ValidationError) {
-        res
-          .status(ERROR_IN_REQUATION)
-          .send({ message: 'Переданны некоректные данные', stack: err.stack });
-      } else {
-        res
-          .status(ERROR_505_DEFALT)
-          .send({ message: 'На сервере произошла ошибка' });
+        return next(
+          new ERROR_IN_REQUATION('Отправлены некорректные данные'),
+        );
       }
+      return next(err);
     });
 };
 
-module.exports.deleteCard = (req, res) => {
+module.exports.getCards = (_req, res, next) => {
+  Card.find({})
+    .then((cards) => res.send(cards))
+    .catch((err) => next(err));
+};
+
+module.exports.deleteCard = (req, res, next) => {
   const { cardId } = req.params;
-  Card.findByIdAndRemove(cardId)
+  Card.findById(cardId)
     .orFail()
-    .then(() => res.status(INFO_200_SEC_SEND).send({ message: 'Карточка удалена' }))
+    .then((card) => {
+      const owner = card.owner.toString();
+      const user = req.user._id.toString();
+      if (owner === user) {
+        return Card.deleteOne(card).then(() => res
+          .status(INFO_200_SEC_SEND)
+          .send({ message: 'Карточка удалена' }));
+      }
+      return next(new ERROR_403_PERMISSION('Недостаточно прав для операции'));
+    })
     .catch((err) => {
       if (err.name === 'CastError') {
-        res
-          .status(ERROR_IN_REQUATION)
-          .send({ message: 'Переданы некоректные данные' });
-      } else if (err.name === 'DocumentNotFoundError') {
-        res.status(ERROR_404_NOTFOUND).send({ message: 'Карточка не найдена' });
-      } else {
-        res
-          .status(ERROR_505_DEFALT)
-          .send({ message: 'На сервере произошла ошибка' });
+        return next(
+          new ERROR_IN_REQUATION('Отправлены некорректные данные'),
+        );
       }
+      if (err.name === 'DocumentNotFoundError') {
+        return next(new ERROR_404_NOTFOUND('Карточка не найдена'));
+      }
+      return next(err);
     });
 };
 
-module.exports.likedCard = (req, res) => {
+module.exports.likeCard = (req, res, next) => {
   const { cardId } = req.params;
   Card.findByIdAndUpdate(
     cardId,
@@ -61,25 +66,23 @@ module.exports.likedCard = (req, res) => {
   )
     .then((card) => {
       if (!card) {
-        res.status(ERROR_404_NOTFOUND).send({ message: 'Карточка не найдена' });
-        return;
+        return next(new ERROR_404_NOTFOUND('Карточка не найдена'));
       }
-      res.status(INFO_200_SEC_SEND).send({ message: 'Карточка понравилась' });
+      return res
+        .status(INFO_200_SEC_SEND)
+        .send({ message: 'Карточка класс' });
     })
     .catch((err) => {
       if (err.name === 'CastError') {
-        res
-          .status(ERROR_IN_REQUATION)
-          .send({ message: 'Переданы некоректные данные' });
-      } else {
-        res
-          .status(ERROR_505_DEFALT)
-          .send({ message: 'На сервере произошла ошибка' });
+        return next(
+          new ERROR_IN_REQUATION('Отправлены некорректные данные'),
+        );
       }
+      return next(err);
     });
 };
 
-module.exports.dislikedCard = (req, res) => {
+module.exports.dislikeCard = (req, res, next) => {
   const { cardId } = req.params;
   Card.findByIdAndUpdate(
     cardId,
@@ -88,20 +91,18 @@ module.exports.dislikedCard = (req, res) => {
   )
     .then((card) => {
       if (!card) {
-        res.status(ERROR_404_NOTFOUND).send({ message: 'Карточка не найдена' });
-        return;
+        return next(new ERROR_404_NOTFOUND('Карточка не была найдена'));
       }
-      res.status(INFO_200_SEC_SEND).send({ message: 'Карточка не понравилась' });
+      return res
+        .status(INFO_200_SEC_SEND)
+        .send({ message: 'Карточка не нравится' });
     })
     .catch((err) => {
       if (err.name === 'CastError') {
-        res
-          .status(ERROR_IN_REQUATION)
-          .send({ message: 'Переданы некоректные данные' });
-      } else {
-        res
-          .status(ERROR_505_DEFALT)
-          .send({ message: 'На сервере произошла ошибка' });
+        return next(
+          new ERROR_IN_REQUATION('Отправлены некорректные данные'),
+        );
       }
+      return next(err);
     });
 };
