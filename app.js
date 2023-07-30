@@ -5,7 +5,7 @@ const { errors } = require('celebrate');
 const router = require('./routes/index');
 const error500 = require('./middlewares/error500');
 
-const ERROR_404_NOTFOUND = 404;
+// const ERROR_404_NOTFOUND = 404;
 
 const { PORT = 3000 } = process.env;
 const app = express();
@@ -23,11 +23,11 @@ app.use(helmet());
 
 app.use(router);
 
-app.use('/', (_req, res) => {
-  res
-    .status(ERROR_404_NOTFOUND)
-    .send({ message: 'Данная страница не найдена' });
-});
+// app.use('/', (_req, res) => {
+//   res
+//     .status(ERROR_404_NOTFOUND)
+//     .send({ message: 'Данная страница не найдена' });
+// });
 
 app.use(errors());
 
